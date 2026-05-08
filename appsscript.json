@@ -1,0 +1,26 @@
+{
+  "timeZone": "Asia/Taipei",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp",
+    "https://www.googleapis.com/auth/script.storage",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+  ],
+  "dependencies": {
+    "libraries": [
+      {
+        "userSymbol": "ToDoList",
+        "version": "1",
+        "libraryId": "1ki4jd5j1r9aGENCMN5s2o0HuOkkuVx3I_YRh3vpti0UWvWNbSXE1Tr5Y",
+        "developmentMode": false
+      }
+    ]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE_ANONYMOUS"
+  }
+}

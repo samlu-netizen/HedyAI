@@ -1,0 +1,1773 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban 看板系統</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- SortableJS (for Drag and Drop) -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+  <style>
+    /* 自訂 Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
+    }
+
+    .kanban-column {
+      min-height: 200px;
+    }
+
+    .sortable-ghost {
+      opacity: 0.4;
+      background-color: #f3f4f6;
+    }
+
+    .sortable-drag {
+      cursor: grabbing !important;
+    }
+
+    .card-cursor {
+      cursor: grab;
+    }
+
+    .card-cursor:active {
+      cursor: grabbing;
+    }
+
+    /* Toast Animation */
+    @keyframes slideIn {
+      from {
+        transform: translateY(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .toast-enter {
+      animation: slideIn 0.3s ease-out forwards;
+    }
+
+    body.app-locked #appHeader,
+    body.app-locked #kanbanView,
+    body.app-locked #meetingsView {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body class="app-locked bg-gray-50 text-gray-800 h-screen flex flex-col overflow-hidden font-sans">
+
+  <section id="identityGate" class="fixed inset-0 z-40 bg-gray-50 flex items-center justify-center p-6">
+    <div class="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 text-white p-2 rounded-lg">
+          <i class="ph ph-user-circle text-2xl"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold text-gray-800">選擇使用者</h1>
+          <p class="text-sm text-gray-500 mt-1">請先選擇你的身分，或註冊新的使用者。</p>
+        </div>
+      </div>
+
+      <div class="mt-6 space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">我是</label>
+          <div class="flex gap-2">
+            <select id="identityUserSelector"
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">載入中...</option>
+            </select>
+            <button type="button" onclick="enterSelectedUser()"
+              class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+              進入
+            </button>
+          </div>
+        </div>
+
+        <form onsubmit="registerUser(event)" class="border-t border-gray-100 pt-5">
+          <label class="block text-sm font-medium text-gray-700 mb-2">註冊新使用者</label>
+          <div class="flex gap-2">
+            <input type="text" id="newUserNameInput" maxlength="40" placeholder="輸入名稱"
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button type="submit" id="registerUserBtn"
+              class="shrink-0 border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
+              註冊
+            </button>
+          </div>
+          <p id="identityHint" class="text-xs text-gray-500 mt-3">名稱會成為任務派發與會議同步的使用者選項。</p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Header -->
+  <header id="appHeader"
+    class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="bg-blue-600 text-white p-2 rounded-lg">
+        <i class="ph ph-kanban text-2xl"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">團隊任務看板</h1>
+        <div class="flex items-center gap-2 mt-2">
+          <button id="tabKanban" onclick="switchView('kanban')"
+            class="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-blue-600 text-white">任務看板</button>
+          <button id="tabAssigned" onclick="switchView('assigned')"
+            class="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-700">派出追蹤</button>
+          <button id="tabMeetings" onclick="switchView('meetings')"
+            class="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-700">會議摘要</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 flex-nowrap min-w-0">
+      <button type="button" onclick="logoutCurrentUser()"
+        class="flex items-center gap-2 shrink-0 whitespace-nowrap bg-yellow-50 hover:bg-yellow-100 text-yellow-800 px-3 py-2 rounded-lg border border-yellow-200 transition-colors text-sm font-bold">
+        <i class="ph ph-sign-out"></i> 登出
+      </button>
+      <div class="relative min-w-[180px] w-56 max-w-56">
+        <i class="ph ph-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+        <input type="text" id="searchInput" placeholder="搜尋任務..."
+          class="pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full transition-all">
+      </div>
+      <div class="flex items-center gap-2 shrink-0 whitespace-nowrap bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+        <label class="flex items-center gap-1 text-sm text-gray-500">
+          排序
+          <select id="taskSortMode" onchange="renderBoard(getVisibleTasks())"
+            class="border border-gray-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="meeting" selected>會議</option>
+            <option value="dueDate">時間</option>
+            <option value="priority">優先級</option>
+          </select>
+        </label>
+        <label id="assignedFilterWrap" class="hidden items-center gap-1 text-sm text-gray-500">
+          對象
+          <select id="assignedAssigneeFilter" onchange="renderBoard(getVisibleTasks())"
+            class="border border-gray-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">All</option>
+          </select>
+        </label>
+      </div>
+      <button id="syncRecentHedyMeetingsBtn" onclick="syncRecentHedyMeetingsFromHeader()"
+        class="flex items-center gap-2 shrink-0 whitespace-nowrap text-gray-600 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors text-sm font-medium">
+        <i class="ph ph-cloud-arrow-down text-lg"></i> 同步會議
+      </button>
+      <button onclick="openSettingsModal()"
+        class="flex items-center gap-2 shrink-0 whitespace-nowrap text-gray-600 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors text-sm font-medium">
+        <i class="ph ph-gear text-lg"></i> 設定
+      </button>
+      <button onclick="openTaskModal()"
+        class="flex items-center gap-2 shrink-0 whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium shadow-sm">
+        <i class="ph ph-plus-bold"></i> 新增任務
+      </button>
+    </div>
+  </header>
+
+  <!-- Kanban Board -->
+  <main id="kanbanView" class="flex-1 overflow-x-auto overflow-y-hidden p-6 flex gap-6 items-start">
+
+    <!-- Column: To Do -->
+    <div
+      class="bg-gray-100/80 rounded-xl flex-1 min-w-[280px] flex flex-col max-h-full border border-gray-200 shadow-sm">
+      <div class="p-3 border-b border-gray-200 flex justify-between items-center">
+        <h2 class="font-bold text-gray-700 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-gray-400"></span>待處理
+        </h2>
+        <span id="count-todo" class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">0</span>
+      </div>
+      <div id="todo" data-status="todo" class="kanban-column p-3 flex-1 overflow-y-auto space-y-3">
+        <!-- Cards will be injected here -->
+      </div>
+    </div>
+
+    <!-- Column: In Progress -->
+    <div
+      class="bg-gray-100/80 rounded-xl flex-1 min-w-[280px] flex flex-col max-h-full border border-gray-200 shadow-sm">
+      <div class="p-3 border-b border-gray-200 flex justify-between items-center">
+        <h2 class="font-bold text-gray-700 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span>進行中
+        </h2>
+        <span id="count-inprogress" class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">0</span>
+      </div>
+      <div id="inprogress" data-status="inprogress" class="kanban-column p-3 flex-1 overflow-y-auto space-y-3"></div>
+    </div>
+
+    <!-- Column: Done -->
+    <div
+      class="bg-gray-100/80 rounded-xl flex-1 min-w-[280px] flex flex-col max-h-full border border-gray-200 shadow-sm">
+      <div class="p-3 border-b border-gray-200 flex justify-between items-center">
+        <h2 class="font-bold text-gray-700 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-green-500"></span>已完成
+        </h2>
+        <span id="count-done" class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">0</span>
+      </div>
+      <div id="done" data-status="done" class="kanban-column p-3 flex-1 overflow-y-auto space-y-3"></div>
+    </div>
+
+  </main>
+
+  <section id="meetingsView" class="hidden flex-1 overflow-hidden p-6">
+    <div class="grid grid-cols-[360px_minmax(0,1fr)] gap-6 w-full h-full">
+      <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div class="px-4 py-3 border-b border-gray-200">
+          <div class="flex items-center justify-between">
+            <h2 class="font-bold text-gray-800">會議列表</h2>
+            <span id="meetingCount" class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">0</span>
+          </div>
+        </div>
+        <div id="meetingsList" class="flex-1 overflow-y-auto p-3 space-y-3">
+          <div class="text-sm text-gray-500 text-center py-10">尚無會議資料</div>
+        </div>
+      </div>
+
+      <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+        <div class="px-5 py-4 border-b border-gray-200">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Meeting Detail</p>
+              <h2 id="meetingDetailTitle" class="text-xl font-bold text-gray-800 mt-1">請先選擇一筆會議</h2>
+              <div id="meetingMeta" class="mt-2 text-sm text-gray-500"></div>
+            </div>
+            <span id="meetingTopicBadge" class="hidden text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-700">未分類</span>
+          </div>
+        </div>
+
+        <div id="meetingDetailBody" class="flex-1 overflow-y-auto p-5 space-y-5">
+          <div class="text-sm text-gray-500">左側選擇會議後，這裡會顯示摘要、決議與待辦事項。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Task Modal (Create/Edit) -->
+  <div id="taskModal"
+    class="fixed inset-0 bg-black/50 hidden flex justify-center items-center z-50 backdrop-blur-sm p-4">
+    <div
+      class="bg-white rounded-xl shadow-xl w-full max-w-xl flex flex-col max-h-[90vh] transform transition-all overflow-hidden">
+      <!-- Header -->
+      <div class="flex justify-between items-center p-5 border-b border-gray-100 shrink-0 bg-white z-10">
+        <h3 id="modalTitle" class="text-xl font-bold text-gray-800">新增任務</h3>
+        <button type="button" onclick="closeTaskModal()" class="text-gray-400 hover:text-gray-600">
+          <i class="ph ph-x text-xl"></i>
+        </button>
+      </div>
+
+      <!-- Body (Scrollable Form) -->
+      <form id="taskForm" onsubmit="saveTask(event)" class="overflow-y-auto p-5 pb-0 flex-1 relative">
+        <input type="hidden" id="taskId">
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">任務標題 <span class="text-red-500">*</span></label>
+            <input type="text" id="taskTitle" required
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 mt-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">狀態</label>
+              <select id="taskStatus"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="todo">待處理</option>
+                <option value="inprogress">進行中</option>
+                <option value="done">已完成</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">優先級</label>
+              <select id="taskPriority"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="low">低</option>
+                <option value="medium" selected>中</option>
+                <option value="high">高</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">到期日</label>
+              <input type="date" id="taskDueDate"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">指派給 <span
+                  class="text-xs text-gray-400">(負責人)</span></label>
+              <select id="taskAssignee"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                <!-- 動態注入名單 -->
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">記事 Memo</label>
+            <textarea id="taskMemo" rows="4" placeholder="補充說明、進度紀錄或交辦備註"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y text-sm"></textarea>
+          </div>
+        </div>
+
+        <div
+          class="mt-6 pt-4 pb-4 border-t border-gray-100 flex justify-between items-center sticky bottom-0 bg-white z-10">
+          <button type="button" id="deleteBtn" onclick="deleteTask()"
+            class="hidden text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+            <i class="ph ph-trash"></i> 刪除
+          </button>
+          <div class="flex gap-2 ml-auto">
+            <button type="button" onclick="closeTaskModal()"
+              class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">取消</button>
+            <button type="submit" id="saveBtn"
+              class="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+              儲存
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Memo Modal -->
+  <div id="memoModal"
+    class="fixed inset-0 bg-black/50 hidden flex justify-center items-center z-50 backdrop-blur-sm p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+      <div class="flex justify-between items-center p-5 border-b border-gray-100">
+        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <i class="ph ph-note-pencil text-blue-600"></i> 任務記事
+        </h3>
+        <button type="button" onclick="closeMemoModal()" class="text-gray-400 hover:text-gray-600">
+          <i class="ph ph-x text-xl"></i>
+        </button>
+      </div>
+      <form onsubmit="saveTaskMemo(event)" class="p-5">
+        <input type="hidden" id="memoTaskId">
+        <div class="text-sm font-semibold text-gray-800 mb-3" id="memoTaskTitle"></div>
+        <textarea id="memoText" rows="7" placeholder="補充說明、進度紀錄或交辦備註"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y text-sm"></textarea>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" onclick="closeMemoModal()"
+            class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">取消</button>
+          <button type="submit" id="memoSaveBtn"
+            class="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+            儲存
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal"
+    class="fixed inset-0 bg-black/50 hidden flex justify-center items-center z-50 backdrop-blur-sm">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 transform transition-all max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-5">
+        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <i class="ph ph-gear text-blue-600"></i> 系統設定
+        </h3>
+        <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-gray-600">
+          <i class="ph ph-x text-xl"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <div class="bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
+          <h4 class="text-sm font-bold text-blue-800 mb-1 flex items-center gap-1"><i class="ph-fill ph-info"></i> Hedy
+            AI 整合說明</h4>
+          <p class="text-xs text-blue-600 leading-relaxed">請將下方的 Webhook 網址複製並貼上到 Hedy AI 的 Webhook
+            設定中。會議結束後系統會自動推送摘要過來。</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Webhook URL <span
+              class="text-xs text-gray-400 opacity-75">(自動帶入 Token)</span></label>
+          <div class="flex relative">
+            <input type="text" id="webhookUrlDisplay" readonly
+              class="w-full border border-gray-300 rounded-l-lg px-3 py-2 bg-gray-50 text-sm text-gray-500 outline-none select-all font-mono">
+            <button type="button" onclick="copyWebhookUrl()"
+              class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-r-lg transition-colors border border-l-0 border-gray-300">
+              <i class="ph ph-copy"></i>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex justify-between items-end mb-1">
+            <label class="block text-sm font-medium text-gray-700">Secret Token</label>
+            <button type="button" onclick="generateRandomToken()"
+              class="text-xs text-blue-600 hover:underline">隨機產生</button>
+          </div>
+          <input type="text" id="webhookTokenInput" placeholder="請輸入自訂 Token"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none font-mono">
+        </div>
+
+        <div class="border-t border-gray-100 pt-4">
+          <div class="flex justify-between items-end mb-1">
+            <label class="block text-sm font-medium text-gray-700">Hedy API Key</label>
+            <span id="hedyApiKeyStatus" class="text-xs text-gray-400">尚未設定</span>
+          </div>
+          <input type="password" id="hedyApiKeyInput" placeholder="貼上新的 API Key；留空代表沿用既有設定"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none font-mono">
+        </div>
+
+        <div class="border-t border-gray-100 pt-4">
+          <div class="flex justify-between items-center mb-3">
+            <div>
+              <h4 class="text-sm font-bold text-gray-800">團隊成員管理</h4>
+              <p class="text-xs text-gray-500 mt-1">只有 Admin 可停用或恢復成員；停用後會從登入與指派名單隱藏，原本的 Sheet 與歷史資料會保留。</p>
+            </div>
+          </div>
+          <div id="teamMemberAdminList" class="space-y-2">
+            <div class="text-sm text-gray-500 py-2">載入中...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex justify-end gap-2">
+        <button type="button" onclick="closeSettingsModal()"
+          class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors">取消</button>
+        <button type="button" id="saveSettingsBtn" onclick="saveWebhookSettings()"
+          class="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+          儲存設定
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-white/70 z-[100] flex justify-center items-center backdrop-blur-sm">
+    <div class="flex flex-col items-center gap-3">
+      <i class="ph ph-spinner-gap animate-spin text-4xl text-blue-600"></i>
+      <span class="text-blue-600 font-medium tracking-wide">系統載入中...</span>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-[100] flex flex-col gap-2"></div>
+
+  <!-- Main JavaScript -->
+  <script>
+    // --- 處理非 GAS 環境 (例如本地預覽) 的模擬機制 ---
+    if (typeof google === 'undefined') {
+      const mockMembers = ['Admin', 'Alice', 'Bob', 'Charlie', 'Dave', 'Eve'];
+      window.google = {
+        script: {
+          run: {
+            _success: null, _failure: null,
+            withSuccessHandler: function (cb) { this._success = cb; return this; },
+            withFailureHandler: function (cb) { this._failure = cb; return this; },
+            getTeamMembers: function () { const cb = this._success; setTimeout(() => cb && cb(mockMembers.slice()), 200); },
+            setCurrentUser: function () { const cb = this._success; setTimeout(() => cb && cb(true), 100); },
+            registerTeamMember: function (name) {
+              const cb = this._success;
+              const normalized = (name || '').trim();
+              const existing = mockMembers.find(member => member.toLowerCase() === normalized.toLowerCase());
+              if (normalized && !existing) mockMembers.push(normalized);
+              setTimeout(() => cb && cb({
+                created: Boolean(normalized && !existing),
+                member: existing || normalized,
+                members: mockMembers.slice()
+              }), 300);
+            },
+            getTasks: function () {
+              const cb = this._success;
+              setTimeout(() => cb && cb([
+                { id: 'mock-1', title: '修正陣列報錯 (已套用)', description: '這是在預覽環境下自動產生的模擬資料。', status: 'todo', priority: 'high', dueDate: '2026-04-10' }
+              ]), 300);
+            },
+            updateTaskStatus: function () { const cb = this._success; setTimeout(() => cb && cb(true), 100); },
+            addTask: function (task) { task.id = 'mock-' + Date.now(); const cb = this._success; setTimeout(() => cb && cb(task), 300); },
+            updateTask: function (task) { const cb = this._success; setTimeout(() => cb && cb(task), 300); },
+            updateTaskMemo: function (id, memo) { const cb = this._success; setTimeout(() => cb && cb({ id: id, memo: memo }), 300); },
+            deleteTask: function (id) { const cb = this._success; setTimeout(() => cb && cb(true), 300); },
+            getAssignedTasks: function () {
+              const cb = this._success;
+              setTimeout(() => cb && cb([
+                { id: 'mock-out-1', title: '追蹤 Bob 的任務', description: '派出追蹤模擬資料。', status: 'inprogress', priority: 'medium', dueDate: '2026-04-12', assigner: 'Alice', assignee: 'Bob', memo: 'Bob 已開始處理，Alice 可在派出追蹤看到這段 memo。' }
+              ]), 300);
+            },
+            getLogs: function () {
+              const cb = this._success;
+              setTimeout(() => cb && cb([
+                {
+                  timestamp: '2026-04-15T09:00:00.000Z',
+                  status: 'Success',
+                  message: 'Received session.exported, created 2 tasks.',
+                  payload: '{"event":"session.exported","title":"Mock Meeting","topic":"營運","todos":[{"task":"整理重點"}]}',
+                  payloadPreview: 'event, title, topic, todos',
+                  payloadIsJson: true
+                }
+              ]), 300);
+            },
+            getMeetings: function () {
+              const cb = this._success;
+              setTimeout(() => cb && cb([
+                {
+                  id: 'meeting-1',
+                  meetingTitle: '模擬會議',
+                  meetingDate: '2026-04-14T08:00:00.000Z',
+                  topic: '策略',
+                  topicLabel: '策略',
+                  status: 'classified',
+                  actionItemCount: '2',
+                  recapMarkdown: '這是模擬 recap',
+                  actionItemsMarkdown: '- 任務一\\n- 任務二',
+                  decisionsMarkdown: '- 決議一',
+                  nextStepsMarkdown: '- 下一步一',
+                  summaryMarkdown: '這是模擬摘要'
+                }
+              ]), 300);
+            },
+            getMeetingById: function (id) {
+              const cb = this._success;
+              setTimeout(() => cb && cb({
+                id: id,
+                meetingTitle: '模擬會議',
+                meetingDate: '2026-04-14T08:00:00.000Z',
+                topic: '策略',
+                topicLabel: '策略',
+                status: 'classified',
+                actionItemCount: '2',
+                recapMarkdown: '這是模擬 recap',
+                actionItemsMarkdown: '- 任務一\\n- 任務二',
+                decisionsMarkdown: '- 決議一',
+                nextStepsMarkdown: '- 下一步一',
+                summaryMarkdown: '這是模擬摘要'
+              }), 300);
+            },
+            getWebhookConfig: function (user) {
+              const cb = this._success;
+              setTimeout(() => cb && cb({
+                url: 'https://script.google.com/macros/mock/exec',
+                token: 'mock-token-123',
+                hasHedyApiKey: false,
+                hedyApiKeyPreview: '',
+                teamMembers: {
+                  members: mockMembers.map(function (member) { return { name: member, disabled: false }; }),
+                  activeMembers: mockMembers.slice(),
+                  disabledMembers: [],
+                  adminUser: 'Admin',
+                  canManageTeamMembers: user === 'Admin'
+                }
+              }), 300);
+            },
+            saveWebhookConfig: function (t, k) { const cb = this._success; setTimeout(() => cb && cb(true), 300); },
+            disableTeamMember: function (name) {
+              const cb = this._success;
+              const index = mockMembers.indexOf(name);
+              if (index >= 0) mockMembers.splice(index, 1);
+              setTimeout(() => cb && cb({
+                members: mockMembers.map(function (member) { return { name: member, disabled: false }; }),
+                activeMembers: mockMembers.slice(),
+                disabledMembers: [],
+                adminUser: 'Admin',
+                canManageTeamMembers: true
+              }), 300);
+            },
+            restoreTeamMember: function (name) {
+              const cb = this._success;
+              if (mockMembers.indexOf(name) < 0) mockMembers.push(name);
+              setTimeout(() => cb && cb({
+                members: mockMembers.map(function (member) { return { name: member, disabled: false }; }),
+                activeMembers: mockMembers.slice(),
+                disabledMembers: [],
+                adminUser: 'Admin',
+                canManageTeamMembers: true
+              }), 300);
+            },
+            testHedyApiConnection: function (k) { const cb = this._success; setTimeout(() => cb && cb(true), 300); },
+            syncRecentHedyMeetings: function () { const cb = this._success; setTimeout(() => cb && cb({ limit: 5, mode: 'latest', hasMore: true, sessions: { created: 1, updated: 1, highlights: 2 }, todos: { created: 1, skipped: 0, checked: 1 } }), 600); },
+            syncHedyApiData: function () { const cb = this._success; setTimeout(() => cb && cb({ sessions: { created: 1, updated: 0, highlights: 1 }, todos: { created: 1, skipped: 0 }, highlights: { created: 1, updated: 0 } }), 600); },
+            createHedyWebhookForUser: function () { const cb = this._success; setTimeout(() => cb && cb({ id: 'webhook-mock' }), 500); }
+          }
+        }
+      };
+    }
+
+    let globalTasks = [];
+    let globalMeetings = [];
+    let meetingDetailsById = {};
+    let meetingsLoaded = false;
+    let isEditing = false;
+    let currentUser = '';
+    let teamMembers = [];
+    const ADMIN_MEMBER_NAME = 'Admin';
+    let activeView = 'kanban';
+
+    // --- 初始化 ---
+    document.addEventListener('DOMContentLoaded', () => {
+      initApp();
+      setupSearch();
+      setupSortable();
+      setupAssignmentStatusControl();
+    });
+
+    function initApp() {
+      document.body.classList.add('app-locked');
+      document.getElementById('identityGate').classList.remove('hidden');
+      showLoading(true);
+      google.script.run
+        .withSuccessHandler(members => {
+          teamMembers = members || [];
+          populateUserSelectors();
+          populateIdentitySelector();
+          showLoading(false);
+        })
+        .withFailureHandler(err => {
+          showLoading(false);
+          showToast('error', '初始化失敗：' + err.message);
+        })
+        .getTeamMembers();
+    }
+
+    function populateUserSelectors() {
+      const userSelector = document.getElementById('userSelector');
+      const taskAssignee = document.getElementById('taskAssignee');
+      const options = teamMembers
+        .filter(m => m !== ADMIN_MEMBER_NAME)
+        .map(m => `<option value="${escapeAttribute(m)}">${escapeHtml(m)}</option>`)
+        .join('');
+      if (userSelector) {
+        userSelector.innerHTML = options;
+      }
+      if (taskAssignee) {
+        taskAssignee.innerHTML = options;
+      }
+    }
+
+    function populateIdentitySelector() {
+      const selector = document.getElementById('identityUserSelector');
+      if (!selector) return;
+
+      if (!teamMembers.length) {
+        selector.innerHTML = '<option value="">尚無使用者，請先註冊</option>';
+        return;
+      }
+
+      const savedUser = localStorage.getItem('kanban_last_user');
+      selector.innerHTML = teamMembers
+        .map(m => `<option value="${escapeAttribute(m)}">${escapeHtml(m)}</option>`)
+        .join('');
+      selector.value = savedUser && teamMembers.includes(savedUser) ? savedUser : teamMembers[0];
+    }
+
+    function enterSelectedUser() {
+      const selector = document.getElementById('identityUserSelector');
+      enterAppAsUser(selector ? selector.value : '');
+    }
+
+    function enterAppAsUser(user) {
+      const selectedUser = String(user || '').trim();
+      if (!selectedUser) {
+        showToast('error', '請先選擇使用者');
+        return;
+      }
+
+      currentUser = selectedUser;
+      localStorage.setItem('kanban_last_user', selectedUser);
+      const userSelector = document.getElementById('userSelector');
+      if (userSelector) {
+        userSelector.value = selectedUser;
+      }
+      populateAssignedAssigneeFilter();
+      clearMeetingCache();
+      showLoading(true);
+
+      google.script.run
+        .withSuccessHandler(() => {
+          activeView = 'kanban';
+          document.getElementById('kanbanView').classList.remove('hidden');
+          document.getElementById('meetingsView').classList.add('hidden');
+          document.getElementById('tabKanban').className = 'px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-blue-600 text-white';
+          document.getElementById('tabAssigned').className = 'px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-700';
+          document.getElementById('tabMeetings').className = 'px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-700';
+          document.getElementById('assignedFilterWrap').classList.add('hidden');
+          document.getElementById('assignedFilterWrap').classList.remove('flex');
+          document.getElementById('identityGate').classList.add('hidden');
+          document.body.classList.remove('app-locked');
+          loadInitialData({ waitForMeetings: false, preloadMeetings: true });
+        })
+        .withFailureHandler(err => {
+          showLoading(false);
+          showToast('error', '無法切換使用者：' + err.message);
+        })
+        .setCurrentUser(selectedUser);
+    }
+
+    function logoutCurrentUser() {
+      currentUser = '';
+      activeView = 'kanban';
+      globalTasks = [];
+      clearMeetingCache();
+      localStorage.removeItem('kanban_last_user');
+      renderBoard([]);
+      document.getElementById('identityGate').classList.remove('hidden');
+      document.body.classList.add('app-locked');
+      populateIdentitySelector();
+      showLoading(false);
+    }
+
+    function registerUser(e) {
+      e.preventDefault();
+
+      const input = document.getElementById('newUserNameInput');
+      const btn = document.getElementById('registerUserBtn');
+      const name = input.value.trim();
+
+      if (!name) {
+        showToast('error', '請輸入使用者名稱');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> 註冊中';
+
+      google.script.run
+        .withSuccessHandler(result => {
+          teamMembers = result && Array.isArray(result.members) ? result.members : teamMembers;
+          populateUserSelectors();
+          populateIdentitySelector();
+          input.value = '';
+          btn.disabled = false;
+          btn.innerHTML = '註冊';
+          showToast('success', result && result.created ? '使用者已註冊' : (result && result.restored ? '使用者已恢復' : '使用者已存在'));
+          enterAppAsUser(result && result.member ? result.member : name);
+        })
+        .withFailureHandler(err => {
+          btn.disabled = false;
+          btn.innerHTML = '註冊';
+          showToast('error', '註冊失敗：' + err.message);
+        })
+        .registerTeamMember(name);
+    }
+
+    function populateAssignedAssigneeFilter() {
+      const filter = document.getElementById('assignedAssigneeFilter');
+      if (!filter) return;
+
+      const previousValue = filter.value;
+      const assigneeOptions = teamMembers
+        .filter(m => m !== currentUser && m !== ADMIN_MEMBER_NAME)
+        .map(m => `<option value="${escapeAttribute(m)}">${escapeHtml(m)}</option>`)
+        .join('');
+      filter.innerHTML = '<option value="">All</option>' + assigneeOptions;
+      filter.value = teamMembers.includes(previousValue) && previousValue !== currentUser && previousValue !== ADMIN_MEMBER_NAME ? previousValue : '';
+    }
+
+    function changeUser(newUser) {
+      if (!newUser) return;
+      currentUser = newUser;
+      localStorage.setItem('kanban_last_user', newUser);
+      populateAssignedAssigneeFilter();
+      clearMeetingCache();
+      google.script.run
+        .withSuccessHandler(() => {
+          loadInitialData({ waitForMeetings: false });
+        })
+        .withFailureHandler(() => {
+          loadInitialData({ waitForMeetings: false });
+        })
+        .setCurrentUser(newUser);
+    }
+
+    // --- 資料存取 ---
+    function loadInitialData(options) {
+      if (!currentUser) return;
+      var loadOptions = options || {};
+      var waitForMeetings = loadOptions.waitForMeetings === true;
+      var preloadMeetings = loadOptions.preloadMeetings !== false;
+      showLoading(true);
+      var pending = waitForMeetings ? 2 : 1;
+      var finish = function () {
+        pending--;
+        if (pending <= 0) {
+          showLoading(false);
+        }
+      };
+
+      fetchTasks(false, finish);
+      if (preloadMeetings || waitForMeetings) {
+        fetchMeetings(null, {
+          force: true,
+          silent: true,
+          onComplete: waitForMeetings ? finish : null
+        });
+      }
+    }
+
+    function clearMeetingCache() {
+      globalMeetings = [];
+      meetingDetailsById = {};
+      meetingsLoaded = false;
+      renderMeetingsList(globalMeetings);
+      renderMeetingDetail(null);
+    }
+
+    function cacheMeetings(meetings) {
+      globalMeetings = Array.isArray(meetings) ? meetings : [];
+      meetingDetailsById = {};
+      globalMeetings.forEach(function (meeting) {
+        if (meeting && meeting.id) {
+          meetingDetailsById[meeting.id] = meeting;
+        }
+      });
+      meetingsLoaded = true;
+    }
+
+    function renderCachedMeetings(selectMeetingId) {
+      renderMeetingsList(globalMeetings);
+      var targetMeetingId = selectMeetingId || (globalMeetings[0] && globalMeetings[0].id);
+      if (targetMeetingId) {
+        openMeetingDetail(targetMeetingId);
+      } else {
+        renderMeetingDetail(null);
+      }
+    }
+
+    function fetchTasks(showOverlay, onComplete) {
+      var requestedUser = currentUser;
+      var requestedView = activeView;
+      var action = requestedView === 'assigned' ? 'getAssignedTasks' : 'getTasks';
+      if (showOverlay !== false) {
+        showLoading(true);
+      }
+      google.script.run
+        .withSuccessHandler(tasks => {
+          if (requestedUser !== currentUser || requestedView !== activeView) {
+            if (showOverlay !== false) {
+              showLoading(false);
+            }
+            if (onComplete) onComplete();
+            return;
+          }
+          globalTasks = Array.isArray(tasks) ? tasks : [];
+          renderBoard(getVisibleTasks());
+          if (showOverlay !== false) {
+            showLoading(false);
+          }
+          if (onComplete) onComplete();
+        })
+        .withFailureHandler(err => {
+          if (requestedUser !== currentUser || requestedView !== activeView) {
+            if (showOverlay !== false) {
+              showLoading(false);
+            }
+            if (onComplete) onComplete();
+            return;
+          }
+          showToast('error', '無法載入任務：' + err.message);
+          globalTasks = [];
+          renderBoard(getVisibleTasks());
+          if (showOverlay !== false) {
+            showLoading(false);
+          }
+          if (onComplete) onComplete();
+        })
+        [action](currentUser);
+    }
+
+    function fetchMeetings(selectMeetingId, options) {
+      var requestedUser = currentUser;
+      var fetchOptions = options || {};
+      if (meetingsLoaded && !fetchOptions.force) {
+        renderCachedMeetings(selectMeetingId);
+        if (fetchOptions.onComplete) fetchOptions.onComplete();
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(meetings => {
+          if (requestedUser !== currentUser) {
+            if (fetchOptions.onComplete) fetchOptions.onComplete();
+            return;
+          }
+          cacheMeetings(meetings);
+          if (activeView === 'meetings' || selectMeetingId) {
+            renderCachedMeetings(selectMeetingId);
+          }
+          if (fetchOptions.onComplete) fetchOptions.onComplete();
+        })
+        .withFailureHandler(err => {
+          if (requestedUser !== currentUser) {
+            if (fetchOptions.onComplete) fetchOptions.onComplete();
+            return;
+          }
+          if (!fetchOptions.silent) {
+            showToast('error', '無法載入會議：' + err.message);
+          }
+          globalMeetings = [];
+          meetingDetailsById = {};
+          meetingsLoaded = false;
+          if (activeView === 'meetings' || selectMeetingId) {
+            renderCachedMeetings(null);
+          }
+          if (fetchOptions.onComplete) fetchOptions.onComplete();
+        })
+        .getMeetings(currentUser);
+    }
+
+    function switchView(view, selectMeetingId) {
+      activeView = view;
+      document.getElementById('kanbanView').classList.toggle('hidden', view !== 'kanban' && view !== 'assigned');
+      document.getElementById('meetingsView').classList.toggle('hidden', view !== 'meetings');
+      document.getElementById('tabKanban').className = `px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap ${view === 'kanban' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`;
+      document.getElementById('tabAssigned').className = `px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap ${view === 'assigned' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`;
+      document.getElementById('tabMeetings').className = `px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap ${view === 'meetings' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`;
+      document.getElementById('assignedFilterWrap').classList.toggle('hidden', view !== 'assigned');
+      document.getElementById('assignedFilterWrap').classList.toggle('flex', view === 'assigned');
+
+      if (view === 'meetings') {
+        fetchMeetings(selectMeetingId);
+      } else if (view === 'kanban' || view === 'assigned') {
+        if (view === 'assigned') {
+          populateAssignedAssigneeFilter();
+        }
+        fetchTasks();
+      }
+    }
+
+    // --- 畫面渲染 ---
+    function getVisibleTasks() {
+      const term = (document.getElementById('searchInput').value || '').toLowerCase();
+      const sourceTasks = Array.isArray(globalTasks) ? globalTasks : [];
+      const assigneeFilter = activeView === 'assigned'
+        ? String(document.getElementById('assignedAssigneeFilter').value || '').trim()
+        : '';
+
+      return sourceTasks.filter(t => {
+        if (assigneeFilter && String(t.assignee || '').trim() !== assigneeFilter) {
+          return false;
+        }
+
+        if (!term) return true;
+
+        return (t.title || '').toLowerCase().includes(term) ||
+          (t.description && t.description.toLowerCase().includes(term)) ||
+          (t.memo && t.memo.toLowerCase().includes(term)) ||
+          (t.meetingTitle && t.meetingTitle.toLowerCase().includes(term)) ||
+          (t.assignee && t.assignee.toLowerCase().includes(term));
+      });
+    }
+
+    function compareText(a, b) {
+      return String(a || '').localeCompare(String(b || ''), 'zh-TW');
+    }
+
+    function getDueTime(task) {
+      if (!task || !task.dueDate) return Number.MAX_SAFE_INTEGER;
+      const time = new Date(task.dueDate).getTime();
+      return isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+    }
+
+    function sortTasksForDisplay(tasks) {
+      const mode = document.getElementById('taskSortMode').value || 'meeting';
+      const priorityRank = { high: 0, medium: 1, low: 2 };
+      const safeTasks = Array.isArray(tasks) ? tasks.slice() : [];
+
+      return safeTasks.sort(function (a, b) {
+        const priorityDiff = (priorityRank[a.priority] ?? 1) - (priorityRank[b.priority] ?? 1);
+        const dueDiff = getDueTime(a) - getDueTime(b);
+
+        if (mode === 'dueDate') {
+          return dueDiff || priorityDiff || compareText(a.title, b.title);
+        }
+
+        if (mode === 'priority') {
+          return priorityDiff || dueDiff || compareText(a.title, b.title);
+        }
+
+        const meetingA = a.meetingId || a.meetingTitle || '';
+        const meetingB = b.meetingId || b.meetingTitle || '';
+        const meetingDiff = compareText(meetingA || '未連結會議', meetingB || '未連結會議');
+        return meetingDiff || priorityDiff || dueDiff || compareText(a.title, b.title);
+      });
+    }
+
+    function renderBoard(tasks) {
+      // 【防呆】：確保傳入的變數可以執行 forEach
+      const safeTasks = Array.isArray(tasks) ? tasks : [];
+
+      const cols = { todo: [], inprogress: [], done: [] };
+
+      sortTasksForDisplay(safeTasks).forEach(task => {
+        if (task && task.status && cols[task.status]) {
+          cols[task.status].push(task);
+        } else if (task) {
+          cols['todo'].push(task);
+        }
+      });
+
+      Object.keys(cols).forEach(status => {
+        const container = document.getElementById(status);
+        if (!container) return;
+        container.innerHTML = '';
+        document.getElementById(`count-${status}`).innerText = cols[status].length;
+
+        cols[status].forEach(task => {
+          container.appendChild(createCardElement(task));
+        });
+      });
+    }
+
+    function createCardElement(task) {
+      const div = document.createElement('div');
+      div.className = "bg-white p-3 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow card-cursor group";
+      div.dataset.id = task.id;
+
+      // 標籤樣式
+      const priorityColors = {
+        low: 'bg-green-100 text-green-700',
+        medium: 'bg-yellow-100 text-yellow-700',
+        high: 'bg-red-100 text-red-700'
+      };
+      const priorityLabels = { low: '低', medium: '中', high: '高' };
+      const pColor = priorityColors[task.priority] || priorityColors.medium;
+      const pLabel = priorityLabels[task.priority] || '中';
+
+      var sourceBadge = '';
+      if (task.source === 'hedyai_webhook') {
+        sourceBadge = '<span class="bg-purple-100 text-purple-700 text-[10px] px-2 py-0.5 rounded flex items-center gap-1"><i class="ph-fill ph-sparkle"></i> AI 匯入</span>';
+      }
+
+      var assignBadge = '';
+      if (task.assigner === currentUser && task.assignee !== currentUser) {
+        assignBadge = '<span class="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold"><i class="ph ph-paper-plane-right"></i> 派給: ' + escapeHtml(task.assignee) + '</span>';
+      } else if (task.assignee === currentUser && task.assigner !== currentUser) {
+        assignBadge = '<span class="bg-teal-100 text-teal-700 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold"><i class="ph ph-envelope-open"></i> 來自: ' + escapeHtml(task.assigner) + '</span>';
+      }
+
+      var dueDateHtml = '';
+      if (task.dueDate) {
+        dueDateHtml = '<div class="text-xs text-gray-500 mt-2 flex items-center gap-1"><i class="ph ph-calendar-blank"></i> ' + escapeHtml(task.dueDate) + '</div>';
+      }
+
+      var memoHtml = '';
+      if (task.memo) {
+        memoHtml = '<div class="text-xs text-gray-600 mt-2 leading-5 bg-gray-50 border border-gray-100 rounded-md px-2 py-1.5"><i class="ph ph-note-pencil"></i> ' + escapeHtml(task.memo) + '</div>';
+      }
+
+      var meetingLinkHtml = '';
+      if (task.meetingId) {
+        var meetingLabel = task.meetingTitle ? escapeHtml(task.meetingTitle) : '查看會議摘要';
+        meetingLinkHtml = '<button type="button" data-meeting-id="' + escapeAttribute(task.meetingId) + '" class="meeting-link mt-3 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"><i class="ph ph-notebook"></i> 會議：' + meetingLabel + '</button>';
+      }
+
+      var editButtonHtml = '';
+      if (activeView !== 'assigned') {
+        editButtonHtml =
+          '<button onclick="openEditModal(\'' + escapeJsString(task.id) + '\')" class="text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1">' +
+            '<i class="ph ph-pencil-simple"></i>' +
+          '</button>';
+      } else {
+        editButtonHtml =
+          '<button type="button" onclick="openMemoModal(\'' + escapeJsString(task.id) + '\')" class="text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1" title="編輯記事">' +
+            '<i class="ph ph-note-pencil"></i>' +
+          '</button>';
+      }
+
+      div.innerHTML =
+        '<div class="flex justify-between items-start mb-2">' +
+          '<div class="flex gap-1 flex-wrap">' +
+            '<span class="' + pColor + ' text-[10px] px-2 py-0.5 rounded font-medium">' + pLabel + '</span>' +
+            sourceBadge +
+            assignBadge +
+          '</div>' +
+          editButtonHtml +
+        '</div>' +
+        '<h4 class="text-sm font-semibold text-gray-800 leading-tight mb-1">' + escapeHtml(task.title) + '</h4>' +
+        dueDateHtml +
+        memoHtml +
+        meetingLinkHtml;
+
+      const meetingLink = div.querySelector('.meeting-link');
+      if (meetingLink) {
+        meetingLink.addEventListener('click', (e) => {
+          e.stopPropagation();
+          switchView('meetings', meetingLink.dataset.meetingId);
+        });
+      }
+
+      // 點擊卡片本體也可編輯，但不包括點擊編輯按鈕
+      div.addEventListener('click', (e) => {
+        if (activeView !== 'assigned' && !e.target.closest('button')) {
+          openEditModal(task.id);
+        }
+      });
+
+      return div;
+    }
+
+    // --- 拖曳功能 (SortableJS) ---
+    function setupSortable() {
+      const columns = ['todo', 'inprogress', 'done'];
+      columns.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        new Sortable(el, {
+          group: 'kanban',
+          animation: 150,
+          ghostClass: 'sortable-ghost',
+          dragClass: 'sortable-drag',
+          onEnd: function (evt) {
+            if (activeView === 'assigned') {
+              showToast('error', '派出追蹤僅供查看狀態，請由負責人更新任務進度');
+              renderBoard(getVisibleTasks());
+              return;
+            }
+
+            const taskId = evt.item.dataset.id;
+            const toStatus = evt.to.dataset.status;
+
+            // 【防呆】：使用 Array.isArray 檢查 globalTasks
+            if (Array.isArray(globalTasks)) {
+              const taskIndex = globalTasks.findIndex(t => t.id === taskId);
+              if (taskIndex > -1) {
+                globalTasks[taskIndex].status = toStatus;
+                updateTaskCountUI();
+
+                google.script.run
+                  .withSuccessHandler(result => {
+                    if (result === false) {
+                      showToast('error', '找不到任務，請重新載入');
+                      fetchTasks();
+                    }
+                  })
+                  .withFailureHandler(err => {
+                    showToast('error', '狀態更新失敗：' + err.message);
+                    fetchTasks();
+                  })
+                  .updateTaskStatus(taskId, toStatus, currentUser);
+              }
+            }
+          },
+        });
+      });
+    }
+
+    function setupAssignmentStatusControl() {
+      const assigneeSelect = document.getElementById('taskAssignee');
+      if (!assigneeSelect) return;
+      assigneeSelect.addEventListener('change', syncAssignmentStatusControl);
+    }
+
+    function syncAssignmentStatusControl() {
+      const assigneeSelect = document.getElementById('taskAssignee');
+      const statusSelect = document.getElementById('taskStatus');
+      if (!assigneeSelect || !statusSelect) return;
+
+      const isAssigningToAnotherMember = currentUser && assigneeSelect.value && assigneeSelect.value !== currentUser;
+      if (isAssigningToAnotherMember) {
+        statusSelect.value = 'todo';
+      }
+      statusSelect.disabled = Boolean(isAssigningToAnotherMember);
+      statusSelect.classList.toggle('bg-gray-100', Boolean(isAssigningToAnotherMember));
+      statusSelect.classList.toggle('text-gray-500', Boolean(isAssigningToAnotherMember));
+    }
+
+    function updateTaskCountUI() {
+      ['todo', 'inprogress', 'done'].forEach(status => {
+        const count = document.getElementById(status).children.length;
+        document.getElementById(`count-${status}`).innerText = count;
+      });
+    }
+
+    // --- Modal 邏輯 ---
+    function openTaskModal() {
+      isEditing = false;
+      document.getElementById('taskForm').reset();
+      document.getElementById('taskId').value = '';
+      document.getElementById('modalTitle').innerText = '新增任務';
+      document.getElementById('deleteBtn').classList.add('hidden');
+
+
+      // 預設今天日期與負責人
+      document.getElementById('taskDueDate').value = new Date().toISOString().split('T')[0];
+      document.getElementById('taskAssignee').value = currentUser === ADMIN_MEMBER_NAME ? '' : currentUser;
+      syncAssignmentStatusControl();
+
+      document.getElementById('taskModal').classList.remove('hidden');
+    }
+
+    function openEditModal(id) {
+      isEditing = true;
+      const task = globalTasks.find(t => t.id === id);
+      if (!task) return;
+
+      document.getElementById('taskId').value = task.id;
+      document.getElementById('taskTitle').value = task.title;
+      document.getElementById('taskStatus').value = task.status;
+      document.getElementById('taskPriority').value = task.priority;
+      document.getElementById('taskAssignee').value = task.assignee === ADMIN_MEMBER_NAME ? '' : (task.assignee || (currentUser === ADMIN_MEMBER_NAME ? '' : currentUser));
+      document.getElementById('taskMemo').value = task.memo || '';
+      syncAssignmentStatusControl();
+
+      // 處理日期格式YYYY-MM-DD
+      const dDate = task.dueDate ? new Date(task.dueDate) : null;
+      document.getElementById('taskDueDate').value = dDate && !isNaN(dDate) ? dDate.toISOString().split('T')[0] : '';
+
+      document.getElementById('modalTitle').innerText = '編輯任務';
+      document.getElementById('deleteBtn').classList.remove('hidden');
+
+      document.getElementById('taskModal').classList.remove('hidden');
+    }
+
+    function renderMeetingsList(meetings) {
+      const safeMeetings = Array.isArray(meetings) ? meetings : [];
+      const container = document.getElementById('meetingsList');
+      document.getElementById('meetingCount').innerText = safeMeetings.length;
+
+      if (safeMeetings.length === 0) {
+        container.innerHTML = '<div class="text-sm text-gray-500 text-center py-10">尚無會議資料</div>';
+        return;
+      }
+
+      container.innerHTML = safeMeetings.map(meeting => {
+        const topicLabel = escapeHtml(meeting.topicLabel || '未分類');
+        const meetingDate = formatDateTime(meeting.meetingDate);
+        const actionCount = Number(meeting.actionItemCount || 0);
+        return `
+          <button type="button" onclick="openMeetingDetail('${meeting.id}')"
+            class="w-full text-left border border-gray-200 rounded-lg p-3 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-semibold text-sm text-gray-800">${escapeHtml(meeting.meetingTitle || '未命名會議')}</div>
+                <div class="text-xs text-gray-500 mt-1">${meetingDate}</div>
+              </div>
+              <span class="text-[10px] px-2 py-1 rounded-full ${meeting.topic ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}">${topicLabel}</span>
+            </div>
+            <div class="text-xs text-gray-500 mt-3 flex items-center gap-2">
+              <span><i class="ph ph-list-checks"></i> ${actionCount} 項代辦</span>
+              <span><i class="ph ph-tag"></i> ${escapeHtml(meeting.status || '')}</span>
+            </div>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function openMeetingDetail(meetingId) {
+      if (!meetingId) {
+        renderMeetingDetail(null);
+        return;
+      }
+
+      if (meetingDetailsById[meetingId]) {
+        renderMeetingDetail(meetingDetailsById[meetingId]);
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(meeting => {
+          if (meeting && meeting.id) {
+            meetingDetailsById[meeting.id] = meeting;
+          }
+          renderMeetingDetail(meeting);
+        })
+        .withFailureHandler(err => {
+          showToast('error', '無法載入會議詳情：' + err.message);
+        })
+        .getMeetingById(meetingId, currentUser);
+    }
+
+    function renderMeetingDetail(meeting) {
+      const titleEl = document.getElementById('meetingDetailTitle');
+      const metaEl = document.getElementById('meetingMeta');
+      const badgeEl = document.getElementById('meetingTopicBadge');
+      const bodyEl = document.getElementById('meetingDetailBody');
+
+      if (!meeting) {
+        titleEl.innerText = '請先選擇一筆會議';
+        metaEl.innerHTML = '';
+        badgeEl.classList.add('hidden');
+        bodyEl.innerHTML = '<div class="text-sm text-gray-500">左側選擇會議後，這裡會顯示摘要、決議與待辦事項。</div>';
+        return;
+      }
+
+      titleEl.innerText = meeting.meetingTitle || '未命名會議';
+      metaEl.innerHTML = `
+        <div class="flex flex-wrap gap-4">
+          <span><i class="ph ph-calendar-blank"></i> ${formatDateTime(meeting.meetingDate)}</span>
+          <span><i class="ph ph-sparkle"></i> ${escapeHtml(meeting.source || '')}</span>
+          <span><i class="ph ph-list-checks"></i> ${Number(meeting.actionItemCount || 0)} 項代辦</span>
+        </div>
+      `;
+      badgeEl.classList.remove('hidden');
+      badgeEl.innerText = meeting.topicLabel || '未分類';
+      badgeEl.className = `text-xs px-3 py-1 rounded-full ${meeting.topic ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`;
+
+      bodyEl.innerHTML = [
+        renderMeetingSection('摘要', meeting.recapMarkdown || meeting.summaryMarkdown),
+        renderMeetingSection('待辦事項', meeting.actionItemsMarkdown),
+        renderMeetingSection('決議事項', meeting.decisionsMarkdown),
+        renderMeetingSection('下一步', meeting.nextStepsMarkdown),
+        renderMeetingSection('完整摘要', meeting.summaryMarkdown)
+      ].join('');
+    }
+
+    function renderMeetingSection(title, markdown) {
+      if (!markdown) return '';
+      return `
+        <section class="border border-gray-200 rounded-xl overflow-hidden">
+          <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+            <h3 class="font-semibold text-gray-800">${escapeHtml(title)}</h3>
+          </div>
+          <div class="px-4 py-4 text-sm text-gray-700 whitespace-pre-wrap leading-7">${escapeHtml(markdown)}</div>
+        </section>
+      `;
+    }
+
+    function closeTaskModal() {
+      document.getElementById('taskModal').classList.add('hidden');
+    }
+
+    function openMemoModal(id) {
+      const task = globalTasks.find(t => t.id === id);
+      if (!task) return;
+
+      document.getElementById('memoTaskId').value = task.id;
+      document.getElementById('memoTaskTitle').innerText = task.title || '未命名任務';
+      document.getElementById('memoText').value = task.memo || '';
+      document.getElementById('memoModal').classList.remove('hidden');
+    }
+
+    function closeMemoModal() {
+      document.getElementById('memoModal').classList.add('hidden');
+    }
+
+    function saveTaskMemo(e) {
+      e.preventDefault();
+
+      const id = document.getElementById('memoTaskId').value;
+      const memo = document.getElementById('memoText').value.trim();
+      const task = globalTasks.find(t => t.id === id) || {};
+      const btn = document.getElementById('memoSaveBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> 儲存中';
+
+      google.script.run
+        .withSuccessHandler((updatedTask) => {
+          globalTasks = globalTasks.map(task => {
+            if (task.id !== id) return task;
+            return Object.assign({}, task, updatedTask || {}, { memo: memo });
+          });
+          renderBoard(getVisibleTasks());
+          closeMemoModal();
+          btn.disabled = false;
+          btn.innerHTML = '儲存';
+          showToast('success', '任務記事已更新');
+        })
+        .withFailureHandler((err) => {
+          showToast('error', '記事更新失敗：' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '儲存';
+        })
+        .updateTaskMemo(id, memo, currentUser, task.assignee || currentUser);
+    }
+
+    // --- CRUD 邏輯 ---
+    function saveTask(e) {
+      e.preventDefault();
+
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> 儲存中';
+
+      const existingTask = isEditing
+        ? (globalTasks.find(t => t.id === document.getElementById('taskId').value) || {})
+        : {};
+      const nextAssignee = document.getElementById('taskAssignee').value;
+      if (!nextAssignee) {
+        showToast('error', '請選擇有效的負責人');
+        btn.disabled = false;
+        btn.innerHTML = '儲存';
+        return;
+      }
+      const isReassigning = isEditing && nextAssignee && nextAssignee !== (existingTask.assignee || '');
+      const isAssigningToAnotherMember = nextAssignee && nextAssignee !== currentUser;
+
+      const taskData = {
+        id: document.getElementById('taskId').value,
+        title: document.getElementById('taskTitle').value.trim(),
+        description: isEditing ? (existingTask.description || '') : '',
+        status: isAssigningToAnotherMember ? 'todo' : document.getElementById('taskStatus').value,
+        priority: document.getElementById('taskPriority').value,
+        dueDate: document.getElementById('taskDueDate').value,
+        memo: document.getElementById('taskMemo').value.trim(),
+        assignee: nextAssignee,
+        previousAssignee: existingTask.assignee || currentUser,
+        currentUser: currentUser,
+        assigner: isEditing
+          ? (isReassigning ? currentUser : (existingTask.assigner || currentUser))
+          : currentUser
+      };
+
+      const action = isEditing ? 'updateTask' : 'addTask';
+
+      google.script.run
+        .withSuccessHandler((updatedTask) => {
+          if (updatedTask && updatedTask.id) {
+            updateLocalTaskAfterSave(updatedTask);
+          }
+          showToast('success', isEditing ? '任務已更新' : '任務已新增');
+          closeTaskModal();
+          btn.disabled = false;
+          btn.innerHTML = '儲存';
+          fetchTasks(false);
+        })
+        .withFailureHandler((err) => {
+          showToast('error', '儲存失敗：' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '儲存';
+        })
+      [action](taskData);
+    }
+
+    function shouldKeepTaskInCurrentList(task) {
+      if (!task) return false;
+      if (activeView === 'assigned') {
+        return task.assigner === currentUser && task.assignee !== currentUser;
+      }
+      return task.assignee === currentUser;
+    }
+
+    function updateLocalTaskAfterSave(updatedTask) {
+      const existingIndex = globalTasks.findIndex(task => task.id === updatedTask.id);
+      const nextTask = existingIndex >= 0
+        ? Object.assign({}, globalTasks[existingIndex], updatedTask)
+        : updatedTask;
+      const shouldKeep = shouldKeepTaskInCurrentList(nextTask);
+
+      if (existingIndex >= 0 && shouldKeep) {
+        globalTasks[existingIndex] = nextTask;
+      } else if (existingIndex >= 0) {
+        globalTasks.splice(existingIndex, 1);
+      } else if (shouldKeep) {
+        globalTasks.push(nextTask);
+      }
+
+      renderBoard(getVisibleTasks());
+    }
+
+    function deleteTask() {
+      if (!confirm('確定要刪除這個任務嗎？')) return;
+
+      const id = document.getElementById('taskId').value;
+      const btn = document.getElementById('deleteBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> 刪除中';
+
+      google.script.run
+        .withSuccessHandler(() => {
+          showToast('success', '任務已刪除');
+          closeTaskModal();
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ph ph-trash"></i> 刪除';
+          fetchTasks();
+        })
+        .withFailureHandler((err) => {
+          showToast('error', '刪除失敗：' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ph ph-trash"></i> 刪除';
+        })
+        .deleteTask(id);
+    }
+
+    function syncRecentHedyMeetingsFromHeader() {
+      if (!currentUser) {
+        showToast('error', '尚未選擇使用者');
+        return;
+      }
+
+      var btn = document.getElementById('syncRecentHedyMeetingsBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin text-lg"></i> 同步中';
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          var sessions = result.sessions || {};
+          var todos = result.todos || {};
+          var batchLabel = result.mode === 'older' ? '更早' : '最新';
+          var moreText = result.hasMore === false ? '；已沒有更早會議' : '';
+          showToast('success', 'Hedy ' + batchLabel + '5場已同步：會議新增 ' + (sessions.created || 0) + '，更新 ' + (sessions.updated || 0) + '；檢查任務 ' + (todos.checked || 0) + '，新增 ' + (todos.created || 0) + '，略過 ' + (todos.skipped || 0) + moreText);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ph ph-cloud-arrow-down text-lg"></i> 同步會議';
+          fetchMeetings(null, { force: true });
+          if (activeView === 'kanban' || activeView === 'assigned') {
+            fetchTasks();
+          }
+        })
+        .withFailureHandler(function (err) {
+          showToast('error', 'Hedy 同步失敗：' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ph ph-cloud-arrow-down text-lg"></i> 同步會議';
+        })
+        .syncRecentHedyMeetings(currentUser);
+    }
+
+    // --- Settings Modal 功能 ---
+    function openSettingsModal() {
+      document.getElementById('settingsModal').classList.remove('hidden');
+      document.getElementById('webhookUrlDisplay').value = '載入中...';
+
+      google.script.run
+        .withSuccessHandler(function (config) {
+          document.getElementById('webhookTokenInput').value = config.token;
+          document.getElementById('hedyApiKeyInput').value = '';
+          document.getElementById('hedyApiKeyStatus').innerText = config.hasHedyApiKey
+            ? '已設定：' + (config.hedyApiKeyPreview || '已保存')
+            : '尚未設定';
+          renderTeamMemberAdmin(config.teamMembers);
+          var url = config.url || 'https://script.google.com/macros/s/DEPLOY_WEB_APP_FIRST/exec';
+          var formatUrl = function (t) {
+            return url + '?token=' + t + '&user=' + currentUser;
+          };
+          document.getElementById('webhookUrlDisplay').value = formatUrl(config.token);
+
+          // 在輸入Token時，即時變更上方的 URL 顯示
+          document.getElementById('webhookTokenInput').oninput = function (e) {
+            document.getElementById('webhookUrlDisplay').value = formatUrl(e.target.value);
+          };
+        })
+        .withFailureHandler(function (err) {
+          showToast('error', '無法載入設定：' + err.message);
+        })
+        .getWebhookConfig(currentUser);
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+      // 清除事件監聽器以防重複綁定
+      document.getElementById('webhookTokenInput').oninput = null;
+      document.getElementById('hedyApiKeyInput').value = '';
+    }
+
+    function renderTeamMemberAdmin(teamMemberData) {
+      const container = document.getElementById('teamMemberAdminList');
+      if (!container) return;
+
+      const members = teamMemberData && Array.isArray(teamMemberData.members)
+        ? teamMemberData.members
+        : teamMembers.map(function (member) { return { name: member, disabled: false }; });
+      const canManage = Boolean(teamMemberData && teamMemberData.canManageTeamMembers);
+      const adminUser = teamMemberData && teamMemberData.adminUser ? teamMemberData.adminUser : 'Admin';
+
+      if (!members.length) {
+        container.innerHTML = '<div class="text-sm text-gray-500 py-2">尚無團隊成員</div>';
+        return;
+      }
+
+      container.innerHTML = members.map(function (member) {
+        const name = member && member.name ? String(member.name) : '';
+        const disabled = Boolean(member && member.disabled);
+        const isCurrent = name === currentUser;
+        const isAdminMember = name === adminUser;
+        const badge = disabled
+          ? '<span class="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-500">已停用</span>'
+          : '<span class="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700">啟用中</span>';
+        const canDisableMember = canManage && !isCurrent && !isAdminMember;
+        const action = disabled
+          ? '<button type="button" onclick="restoreTeamMemberFromSettings(\'' + escapeJsString(name) + '\')" ' + (canManage ? '' : 'disabled ') + 'class="text-xs px-3 py-1.5 rounded border ' + (canManage ? 'border-gray-300 hover:bg-gray-50 text-gray-700' : 'border-gray-200 text-gray-300 cursor-not-allowed') + '">恢復</button>'
+          : '<button type="button" onclick="disableTeamMemberFromSettings(\'' + escapeJsString(name) + '\')" ' + (canDisableMember ? '' : 'disabled ') + 'class="text-xs px-3 py-1.5 rounded border ' + (canDisableMember ? 'border-red-200 hover:bg-red-50 text-red-600' : 'border-gray-200 text-gray-300 cursor-not-allowed') + '">' + (isCurrent ? '目前使用者' : (isAdminMember ? 'Admin' : (canManage ? '停用' : '僅 Admin'))) + '</button>';
+
+        return '' +
+          '<div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2">' +
+            '<div class="min-w-0">' +
+              '<div class="flex items-center gap-2">' +
+                '<span class="text-sm font-medium text-gray-800 truncate">' + escapeHtml(name) + '</span>' +
+                badge +
+              '</div>' +
+            '</div>' +
+            action +
+          '</div>';
+      }).join('');
+    }
+
+    function applyTeamMemberAdminResult(result) {
+      const activeMembers = result && Array.isArray(result.activeMembers) ? result.activeMembers : [];
+      teamMembers = activeMembers;
+      populateUserSelectors();
+      populateIdentitySelector();
+      populateAssignedAssigneeFilter();
+      renderTeamMemberAdmin(result);
+    }
+
+    function disableTeamMemberFromSettings(name) {
+      if (!name || name === currentUser || currentUser !== 'Admin') return;
+      if (!confirm('確定要停用「' + name + '」嗎？此操作不會刪除 Sheet 或歷史資料。')) return;
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          applyTeamMemberAdminResult(result);
+          showToast('success', '使用者已停用');
+        })
+        .withFailureHandler(function (err) {
+          showToast('error', '停用失敗：' + err.message);
+        })
+        .disableTeamMember(name, currentUser);
+    }
+
+    function restoreTeamMemberFromSettings(name) {
+      if (!name || currentUser !== 'Admin') return;
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          applyTeamMemberAdminResult(result);
+          showToast('success', '使用者已恢復');
+        })
+        .withFailureHandler(function (err) {
+          showToast('error', '恢復失敗：' + err.message);
+        })
+        .restoreTeamMember(name, currentUser);
+    }
+
+    function generateRandomToken() {
+      const randomStr = 'tk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const input = document.getElementById('webhookTokenInput');
+      input.value = randomStr;
+
+      // 觸發 input 事件以更新上方 URL
+      input.dispatchEvent(new Event('input'));
+    }
+
+    function copyWebhookUrl() {
+      const urlInput = document.getElementById('webhookUrlDisplay');
+      urlInput.select();
+      urlInput.setSelectionRange(0, 99999);
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(urlInput.value).then(() => {
+          showToast('success', 'Webhook URL 已複製');
+        }).catch(err => {
+          document.execCommand('copy');
+          showToast('success', 'Webhook URL 已複製');
+        });
+      } else {
+        document.execCommand('copy');
+        showToast('success', 'Webhook URL 已複製');
+      }
+    }
+
+    function saveWebhookSettings() {
+      const btn = document.getElementById('saveSettingsBtn');
+      const token = document.getElementById('webhookTokenInput').value.trim();
+      const hedyApiKey = document.getElementById('hedyApiKeyInput').value.trim();
+
+      if (!token) {
+        showToast('error', 'Token 不能為空');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> 儲存中';
+
+      google.script.run
+        .withSuccessHandler(() => {
+          showToast('success', '設定已儲存');
+          document.getElementById('hedyApiKeyInput').value = '';
+          closeSettingsModal();
+          btn.disabled = false;
+          btn.innerHTML = '儲存設定';
+        })
+        .withFailureHandler(err => {
+          showToast('error', '儲存失敗：' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '儲存設定';
+        })
+        .saveWebhookConfig(token, hedyApiKey);
+    }
+
+    // --- 輔助功能 ---
+    function setupSearch() {
+      document.getElementById('searchInput').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        if (activeView === 'meetings') {
+          const filteredMeetings = globalMeetings.filter(m =>
+            (m.meetingTitle || '').toLowerCase().includes(term) ||
+            (m.topicLabel || '').toLowerCase().includes(term) ||
+            (m.summaryMarkdown || '').toLowerCase().includes(term)
+          );
+          renderMeetingsList(filteredMeetings);
+          return;
+        }
+
+        renderBoard(getVisibleTasks());
+      });
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '未提供時間';
+      const date = new Date(value);
+      return isNaN(date) ? value : date.toLocaleString('zh-TW');
+    }
+
+    function showLoading(show) {
+      const el = document.getElementById('loadingOverlay');
+      if (show) el.classList.remove('hidden');
+      else el.classList.add('hidden');
+    }
+
+    function showToast(type, message) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+
+      const colors = type === 'success' ? 'bg-gray-800 text-white' : 'bg-red-600 text-white';
+      const icon = type === 'success' ? 'ph-check-circle' : 'ph-warning-circle';
+
+      toast.className = `toast-enter flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg ${colors} text-sm font-medium`;
+      toast.innerHTML = `<i class="ph ${icon} text-lg"></i> ${message}`;
+
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(100%)';
+        toast.style.transition = 'all 0.3s ease-in';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function escapeHtml(unsafe) {
+      return (unsafe || '').toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function escapeAttribute(unsafe) {
+      return escapeHtml(unsafe)
+        .replace(/\n/g, '&#10;')
+        .replace(/\r/g, '&#13;');
+    }
+
+    function escapeJsString(unsafe) {
+      return (unsafe || '').toString()
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'");
+    }
+  </script>
+</body>
+
+</html>
