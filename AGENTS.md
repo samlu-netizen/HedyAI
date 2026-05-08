@@ -7,18 +7,18 @@ This file governs the whole project root.
 - This is a Google Apps Script project managed by `clasp`.
 - Main files:
   - `程式碼.js`: backend Apps Script logic, webhook handling, spreadsheet IO.
-  - `Index.html`: HtmlService frontend.
+  - `index.html`: HtmlService frontend.
   - `appsscript.json`: Apps Script manifest.
 - The deployed app is sensitive to HtmlService frontend parsing errors. A small JS syntax issue can make the whole app fail to load.
 
 ## Frontend Rules
 
-- Prefer conservative browser-compatible JavaScript in `Index.html`.
+- Prefer conservative browser-compatible JavaScript in `index.html`.
 - Be extra careful with large inline script changes. HtmlService can be less forgiving than local Node syntax checks.
 - Avoid adding complex inline template literal blocks unless there is a strong reason.
 - Prefer simple string concatenation or small helper functions over deeply nested dynamic HTML.
 - When editing event handlers embedded in HTML strings, escape values carefully.
-- If the page stops loading and shows `userCodeAppPanel` syntax errors, suspect recent `Index.html` edits first.
+- If the page stops loading and shows `userCodeAppPanel` syntax errors, suspect recent `index.html` edits first.
 - Keep first-load logic minimal. Initial render should only fetch what is needed for the first screen.
 - Do not let secondary preload work block user switching. Switching users should prioritize loading that user's tasks; meeting preload can run in the background.
 - When adding async frontend calls that depend on `currentUser`, capture the requested user and ignore stale responses if `currentUser` changed before the callback returns.
@@ -89,7 +89,7 @@ This file governs the whole project root.
 ## Verification Checklist
 
 - Before claiming frontend fixes:
-  - run a local syntax check on the inline script extracted from `Index.html`
+  - run a local syntax check on the inline script extracted from `index.html`
   - sanity check `程式碼.js` syntax
 - Before claiming webhook fixes:
   - verify event routing logic in `doPost`

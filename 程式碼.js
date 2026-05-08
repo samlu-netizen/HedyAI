@@ -33,7 +33,7 @@ let spreadsheetCache_ = {};
  * 處理 HTTP GET 請求，回傳 Web App 頁面
  */
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('Kanban 任務派發系統')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
